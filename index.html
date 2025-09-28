@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>氣墊球台 Air Hockey</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        #gameContainer {
+            position: relative;
+            width: 800px;
+            height: 500px;
+            background: #4ade80;
+            border: 8px solid #fbbf24;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        #gameCanvas {
+            width: 100%;
+            height: 100%;
+            border-radius: 12px;
+            background: #4ade80;
+        }
+
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 24px;
+            border-radius: 12px;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .button {
+            background: #fbbf24;
+            color: #1f2937;
+            border: none;
+            padding: 15px 30px;
+            margin: 10px;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        }
+
+        .button:hover {
+            background: #f59e0b;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(0,0,0,0.3);
+        }
+
+        .scoreboard {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 10px;
+            font-size: 20px;
+            font-weight: bold;
+            z-index: 10;
+        }
+
+        .controls {
+            position: absolute;
+            bottom: -60px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            color: white;
+            font-size: 14px;
+        }
+
+        .credit {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            color: rgba(255,255,255,0.7);
+            font-size: 12px;
+            font-style: italic;
+        }
+
+        .game-title {
+            color: #fbbf24;
+            font-size: 32px;
+            margin-bottom: 30px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+
+        .mode-description {
+            font-size: 16px;
+            margin-bottom: 20px;
+            text-align: center;
+            line-height: 1.5;
+        }
+
+        .ready-text {
+            font-size: 28px;
+            margin-bottom: 20px;
+            color: #fbbf24;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="800" height="500"></canvas>
+        
+        <div class="scoreboard" id="scoreboard">
+            玩家1: 0 | 玩家2: 0
+        </div>
+
+        <!-- 模式選擇頁面 -->
+        <div class="overlay" id="modeSelect">
+            <h1 class="game-title">🏒 氣墊球台 Air Hockey 🏒</h1>
+            <div class="mode-description">選擇遊戲模式</div>
+            <button class="button" onclick="startGame('pve')">🤖 玩家對電腦 (PvE)</button>
+            <button class="button" onclick="startGame('pvp')">👥 玩家對玩家 (PvP)</button>
+        </div>
+
+        <!-- 準備頁面 -->
+        <div class="overlay hidden" id="readyScreen">
+            <div class="ready-text">得分！</div>
+            <div id="scoreDisplay"></div>
+            <div style="margin-top: 20px; font-size: 18px;">請按下 R 鍵繼續比賽</div>
+        </div>
+
+        <!-- 暫停頁面 -->
+        <div class="overlay hidden" id="pauseScreen">
+            <div class="ready-text">遊戲暫停</div>
+            <div style="font-size: 18px;">按下 C 鍵繼續遊戲</div>
+        </div>
+
+        <div class="controls">
+            <div>玩家1: WASD 移動 | 玩家2: 方向鍵移動 | P: 暫停 | C: 繼續 | ESC: 結束 | R: 準備頁面繼續</div>
+        </div>
+    </div>
+
+    <div class="credit">感謝 Professor.黃 提供</div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 遊戲狀態
+        let gameState = 'modeSelect'; // modeSelect, playing, ready, paused
+        let gameMode = ''; // pve, pvp
+        let score = { player1: 0, player2: 0 };
+        
+        // 遊戲物件
+        const player1 = {
+            x: 150,
+            y: canvas.height / 2,
+            radius: 30,
+            color: '#fbbf24',
+            strokeColor: '#1f2937'
+        };
+        
+        const player2 = {
+            x: canvas.width - 150,
+            y: canvas.height / 2,
+            radius: 30,
+            color: '#fbbf24',
+            strokeColor: '#1f2937'
+        };
+        
+        const puck = {
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            radius: 15,
+            velocityX: 0,
+            velocityY: 0,
+            color: '#1f2937',
+            strokeColor: '#fbbf24'
+        };
+        
+        // 球門
+        const goal1 = { x: 0, y: canvas.height / 2 - 80, width: 20, height: 160 };
+        const goal2 = { x: canvas.width - 20, y: canvas.height / 2 - 80, width: 20, height: 160 };
+        
+        // 輸入控制
+        const keys = {};
+        
+        // 事件監聽器
+        document.addEventListener('keydown', (e) => {
+            keys[e.key.toLowerCase()] = true;
+            
+            if (gameState === 'ready' && e.key.toLowerCase() === 'r') {
+                continueGame();
+            } else if (gameState === 'playing' && e.key.toLowerCase() === 'p') {
+                pauseGame();
+            } else if (gameState === 'paused' && e.key.toLowerCase() === 'c') {
+                resumeGame();
+            } else if (e.key === 'Escape') {
+                resetToModeSelect();
+            }
+        });
+        
+        document.addEventListener('keyup', (e) => {
+            keys[e.key.toLowerCase()] = false;
+        });
+        
+        // 遊戲邏輯函數
+        function startGame(mode) {
+            gameMode = mode;
+            gameState = 'playing';
+            resetPositions();
+            document.getElementById('modeSelect').classList.add('hidden');
+            updateScoreboard();
+            gameLoop();
+        }
+        
+        function resetPositions() {
+            player1.x = 150;
+            player1.y = canvas.height / 2;
+            player2.x = canvas.width - 150;
+            player2.y = canvas.height / 2;
+            puck.x = canvas.width / 2;
+            puck.y = canvas.height / 2;
+            puck.velocityX = (Math.random() > 0.5 ? 1 : -1) * 3;
+            puck.velocityY = (Math.random() - 0.5) * 2;
+        }
+        
+        function updateScoreboard() {
+            const modeText = gameMode === 'pve' ? '玩家 vs 電腦' : '玩家1 vs 玩家2';
+            document.getElementById('scoreboard').textContent = 
+                `${modeText} | ${score.player1} : ${score.player2}`;
+        }
+        
+        function pauseGame() {
+            gameState = 'paused';
+            document.getElementById('pauseScreen').classList.remove('hidden');
+        }
+        
+        function resumeGame() {
+            gameState = 'playing';
+            document.getElementById('pauseScreen').classList.add('hidden');
+        }
+        
+        function continueGame() {
+            gameState = 'playing';
+            document.getElementById('readyScreen').classList.add('hidden');
+            resetPositions();
+        }
+        
+        function resetToModeSelect() {
+            gameState = 'modeSelect';
+            score = { player1: 0, player2: 0 };
+            document.getElementById('modeSelect').classList.remove('hidden');
+            document.getElementById('readyScreen').classList.add('hidden');
+            document.getElementById('pauseScreen').classList.add('hidden');
+            updateScoreboard();
+        }
+        
+        function showReadyScreen(scorer) {
+            gameState = 'ready';
+            const scoreText = gameMode === 'pve' ? 
+                (scorer === 'player1' ? '玩家得分！' : '電腦得分！') :
+                (scorer === 'player1' ? '玩家1得分！' : '玩家2得分！');
+            
+            document.getElementById('scoreDisplay').textContent = 
+                `${scoreText} 目前比分: ${score.player1} - ${score.player2}`;
+            document.getElementById('readyScreen').classList.remove('hidden');
+        }
+        
+        // 物理更新
+        function updateGame() {
+            if (gameState !== 'playing') return;
+            
+            // 玩家1控制
+            if (keys['w'] && player1.y > player1.radius) player1.y -= 5;
+            if (keys['s'] && player1.y < canvas.height - player1.radius) player1.y += 5;
+            if (keys['a'] && player1.x > player1.radius) player1.x -= 5;
+            if (keys['d'] && player1.x < canvas.width / 2 - player1.radius) player1.x += 5;
+            
+            // 玩家2控制 (PvP) 或 AI (PvE)
+            if (gameMode === 'pvp') {
+                if (keys['arrowup'] && player2.y > player2.radius) player2.y -= 5;
+                if (keys['arrowdown'] && player2.y < canvas.height - player2.radius) player2.y += 5;
+                if (keys['arrowleft'] && player2.x > canvas.width / 2 + player2.radius) player2.x -= 5;
+                if (keys['arrowright'] && player2.x < canvas.width - player2.radius) player2.x += 5;
+            } else if (gameMode === 'pve') {
+                // AI 控制
+                const aiSpeed = 3;
+                const puckDist = Math.sqrt((puck.x - player2.x) ** 2 + (puck.y - player2.y) ** 2);
+                
+                if (puckDist > 5) { // 避免AI過於精確
+                    if (puck.y > player2.y + 10 && player2.y < canvas.height - player2.radius) {
+                        player2.y += aiSpeed;
+                    }
+                    if (puck.y < player2.y - 10 && player2.y > player2.radius) {
+                        player2.y -= aiSpeed;
+                    }
+                    if (puck.x > player2.x + 20 && player2.x < canvas.width - player2.radius) {
+                        player2.x += aiSpeed;
+                    }
+                    if (puck.x < player2.x - 20 && player2.x > canvas.width / 2 + player2.radius) {
+                        player2.x -= aiSpeed;
+                    }
+                }
+            }
+            
+            // 冰球物理
+            puck.x += puck.velocityX;
+            puck.y += puck.velocityY;
+            
+            // 摩擦力
+            puck.velocityX *= 0.995;
+            puck.velocityY *= 0.995;
+            
+            // 邊界碰撞
+            if (puck.y <= puck.radius || puck.y >= canvas.height - puck.radius) {
+                puck.velocityY = -puck.velocityY;
+                puck.y = Math.max(puck.radius, Math.min(canvas.height - puck.radius, puck.y));
+            }
+            
+            if (puck.x <= puck.radius || puck.x >= canvas.width - puck.radius) {
+                puck.velocityX = -puck.velocityX;
+                puck.x = Math.max(puck.radius, Math.min(canvas.width - puck.radius, puck.x));
+            }
+            
+            // 球拍碰撞
+            checkPaddleCollision(player1);
+            checkPaddleCollision(player2);
+            
+            // 進球檢測
+            checkGoal();
+        }
+        
+        function checkPaddleCollision(paddle) {
+            const dx = puck.x - paddle.x;
+            const dy = puck.y - paddle.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance < puck.radius + paddle.radius) {
+                const angle = Math.atan2(dy, dx);
+                const force = 8;
+                puck.velocityX = Math.cos(angle) * force;
+                puck.velocityY = Math.sin(angle) * force;
+                
+                // 分離物件
+                const overlap = puck.radius + paddle.radius - distance;
+                puck.x += Math.cos(angle) * overlap;
+                puck.y += Math.sin(angle) * overlap;
+            }
+        }
+        
+        function checkGoal() {
+            // 左側球門 (玩家2得分)
+            if (puck.x <= goal1.width && 
+                puck.y >= goal1.y && 
+                puck.y <= goal1.y + goal1.height) {
+                score.player2++;
+                updateScoreboard();
+                showReadyScreen('player2');
+            }
+            
+            // 右側球門 (玩家1得分)
+            if (puck.x >= goal2.x && 
+                puck.y >= goal2.y && 
+                puck.y <= goal2.y + goal2.height) {
+                score.player1++;
+                updateScoreboard();
+                showReadyScreen('player1');
+            }
+        }
+        
+        // 繪圖函數
+        function draw() {
+            // 清除畫面
+            ctx.fillStyle = '#4ade80';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // 繪製中線
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 4;
+            ctx.setLineDash([10, 10]);
+            ctx.beginPath();
+            ctx.moveTo(canvas.width / 2, 0);
+            ctx.lineTo(canvas.width / 2, canvas.height);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            
+            // 繪製中圓
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(canvas.width / 2, canvas.height / 2, 60, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            // 繪製球門
+            drawGoal(goal1);
+            drawGoal(goal2);
+            
+            // 繪製球拍
+            drawPaddle(player1);
+            drawPaddle(player2);
+            
+            // 繪製冰球
+            drawPuck();
+        }
+        
+        function drawGoal(goal) {
+            ctx.fillStyle = '#1f2937';
+            ctx.fillRect(goal.x, goal.y, goal.width, goal.height);
+            ctx.strokeStyle = '#fbbf24';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(goal.x, goal.y, goal.width, goal.height);
+        }
+        
+        function drawPaddle(paddle) {
+            ctx.fillStyle = paddle.color;
+            ctx.beginPath();
+            ctx.arc(paddle.x, paddle.y, paddle.radius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.strokeStyle = paddle.strokeColor;
+            ctx.lineWidth = 3;
+            ctx.stroke();
+        }
+        
+        function drawPuck() {
+            ctx.fillStyle = puck.color;
+            ctx.beginPath();
+            ctx.arc(puck.x, puck.y, puck.radius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.strokeStyle = puck.strokeColor;
+            ctx.lineWidth = 3;
+            ctx.stroke();
+        }
+        
+        // 遊戲主循環
+        function gameLoop() {
+            updateGame();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // 初始繪製
+        draw();
+    </script>
+</body>
+</html>
